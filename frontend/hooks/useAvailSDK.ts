@@ -11,17 +11,22 @@ import type {
   ExecuteResult,
   BridgeAndExecuteResult,
 } from "@avail-project/nexus-core";
+import { useAccount } from "wagmi";
 
 export const useAvailSDK = () => {
+  const { connector } = useAccount();
   const [sdk, setSdk] = useState<NexusSDK | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Initialize SDK
-  const initializeSDK = useCallback(async (provider?: any) => {
+  const initializeSDK = useCallback(async () => {
     try {
       setError(null);
       const nexusSDK = new NexusSDK({ network: "testnet" });
+
+      // Get the provider from the connected wallet
+      const provider = await connector?.getProvider();
 
       // If provider isn't passed, try to use window.ethereum (injected wallets)
       const initProvider =
