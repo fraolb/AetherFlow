@@ -8,7 +8,7 @@ import {
   connectorsForWallets,
 } from "@rainbow-me/rainbowkit";
 import { WagmiProvider, createConfig, http } from "wagmi";
-import { base } from "wagmi/chains";
+import { base, mainnet, optimism, polygon } from "wagmi/chains";
 
 import { injectedWallet } from "@rainbow-me/rainbowkit/wallets";
 
@@ -27,9 +27,12 @@ const connectors = connectorsForWallets(
 
 export const config = createConfig({
   connectors,
-  chains: [base],
+  chains: [base, mainnet, optimism, polygon],
   transports: {
     [base.id]: http(),
+    [mainnet.id]: http(),
+    [optimism.id]: http(),
+    [polygon.id]: http(),
   },
 });
 
