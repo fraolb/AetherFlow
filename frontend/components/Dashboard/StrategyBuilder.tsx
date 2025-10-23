@@ -11,6 +11,8 @@ import type {
   BridgeAndExecuteResult,
   ProgressStep,
 } from "@avail-project/nexus-core";
+import { Strategy as StrategyASI } from "../../types/strategy";
+import { ASIService } from "../../services/asi-service";
 
 interface Strategy {
   id: string;
@@ -40,6 +42,11 @@ const StrategyBuilder: React.FC = () => {
   );
   const [balances, setBalances] = useState<UserAsset[]>([]);
   const [currentStep, setCurrentStep] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [generatedStrategy, setGeneratedStrategy] = useState<Strategy | null>(
+    null
+  );
 
   // Load balances when SDK is initialized
   useEffect(() => {
@@ -190,27 +197,58 @@ const StrategyBuilder: React.FC = () => {
     if (!customPrompt.trim()) return;
 
     setIsGenerating(true);
-    // Simulate AI strategy generation
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    setError(null);
 
-    // In real implementation, this would call your AI backend
-    // and return a strategy object compatible with Avail SDK
-    const generatedStrategy = {
-      id: "custom-" + Date.now(),
-      name: "Custom Strategy",
-      description: customPrompt,
-      risk: "medium" as const,
-      apy: 9.5,
-      chains: ["Ethereum", "Arbitrum"],
-      protocols: ["Aave", "Uniswap"],
-      tvl: 0,
-      recommended: false,
-      type: "bridge",
-    };
+    try {
+      // Call ASI API to generate strategy
+      const generatedStrategy = await ASIService.generateStrategy(customPrompt);
 
-    setIsGenerating(false);
-    // Add to strategies or set as selected
-    setSelectedStrategy(generatedStrategy.id);
+      if (generatedStrategy) {
+        // Add the generated strategy to our list or set as selected
+        setSelectedStrategy(generatedStrategy.id);
+
+        // Optional: Add to predefined strategies for this session
+        // setPredefinedStrategies((prev) => [...prev, generatedStrategy]);
+
+        // Show success message
+        setSuccessMessage(
+          `✅ AI strategy "${generatedStrategy.name}" generated successfully!`
+        );
+        console.log("Generated Strategy:", generatedStrategy);
+        setTimeout(() => setSuccessMessage(""), 5000);
+        setGeneratedStrategy(generatedStrategy);
+      }
+    } catch (error) {
+      console.error("AI Strategy Generation Failed:", error);
+      setError("Failed to generate strategy. Using fallback strategy.");
+
+      // Fallback strategy if AI fails
+      const fallbackStrategy: StrategyASI = {
+        id: "custom-" + Date.now(),
+        name: "Cross-Chain Yield Strategy",
+        description: customPrompt,
+        risk: "medium",
+        apy: 8.5,
+        chains: ["Ethereum", "Arbitrum"],
+        protocols: ["Aave", "Uniswap"],
+        tvl: 0,
+        recommended: false,
+        type: "bridge",
+        executionSteps: [
+          "Bridge assets to target chain",
+          "Supply to lending protocol",
+          "Monitor and optimize yields",
+        ],
+        recommendedAmount: 100,
+        token: "USDC",
+      };
+
+      setSelectedStrategy(fallbackStrategy.id);
+      // setPredefinedStrategies((prev) => [...prev, fallbackStrategy]);
+      console.log("Fallback Strategy:", fallbackStrategy);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleExecuteStrategy = async (strategyId: string) => {
@@ -275,6 +313,19 @@ const StrategyBuilder: React.FC = () => {
       chainId: 137, // Polygon
       sourceChains: [42161, 10], // Use USDC from Arbitrum and Optimism
     });
+  };
+
+  const simulateBridgeStrategy = async (
+    strategy: Strategy
+  ): Promise<BridgeResult> => {
+    const result = await sdk!.bridge({
+      token: "ETH",
+      amount: 0.01, // Example amount
+      chainId: 84532, // base
+      // sourceChains: [42161, 10], // Use USDC from Arbitrum and Optimism
+    });
+    console.log("Simulated bridge result:", result);
+    return result;
   };
 
   const executeContractStrategy = async (
@@ -383,6 +434,7 @@ const StrategyBuilder: React.FC = () => {
     };
     return stepDescriptions[stepId] || stepId;
   };
+  //console.log("balances:", balances);
 
   return (
     <div className="space-y-6">
@@ -507,11 +559,29 @@ const StrategyBuilder: React.FC = () => {
           </div>
           <div>
             <h2 className="text-2xl font-bold">AI Strategy Generator</h2>
-            <p className="text-gray-400">
-              Describe your cross-chain DeFi strategy in natural language
-            </p>
+            <p className="text-gray-400">Powered by ASI Alliance AI</p>
           </div>
         </div>
+
+        {/* Success Message */}
+        {successMessage && (
+          <div className="mb-4 p-4 bg-green-500/20 border border-green-500/30 rounded-lg">
+            <div className="flex items-center space-x-2 text-green-400">
+              <span>✓</span>
+              <span>{successMessage}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Error Message */}
+        {error && (
+          <div className="mb-4 p-4 bg-red-500/20 border border-red-500/30 rounded-lg">
+            <div className="flex items-center space-x-2 text-red-400">
+              <span>⚠</span>
+              <span>{error}</span>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-4">
           <div className="flex space-x-4">
@@ -519,16 +589,26 @@ const StrategyBuilder: React.FC = () => {
               type="text"
               value={customPrompt}
               onChange={(e) => setCustomPrompt(e.target.value)}
-              placeholder="e.g., 'Bridge 100 USDC from Arbitrum to Polygon and supply to Aave for yield'"
+              placeholder="e.g., 'I want medium risk yield farming with USDC across Arbitrum and Optimism'"
               className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={!isInitialized}
+              disabled={!isInitialized || isGenerating}
             />
             <button
               onClick={handleGenerateStrategy}
               disabled={isGenerating || !customPrompt.trim() || !isInitialized}
-              className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 px-6 py-3 rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 px-6 py-3 rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
             >
-              {isGenerating ? "Generating..." : "Generate"}
+              {isGenerating ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                  <span>Generating...</span>
+                </>
+              ) : (
+                <>
+                  <span>🤖</span>
+                  <span>Generate</span>
+                </>
+              )}
             </button>
           </div>
 
@@ -541,9 +621,131 @@ const StrategyBuilder: React.FC = () => {
                     AI is crafting your strategy...
                   </div>
                   <div className="text-sm text-gray-400">
-                    Analyzing cross-chain opportunities with Avail Nexus
+                    Analyzing cross-chain opportunities with ASI AI
                   </div>
                 </div>
+              </div>
+
+              {/* Loading steps */}
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center space-x-2 text-sm text-gray-400">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                  <span>Analyzing risk parameters...</span>
+                </div>
+                <div className="flex items-center space-x-2 text-sm text-gray-400">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                  <span>Optimizing cross-chain routes...</span>
+                </div>
+                <div className="flex items-center space-x-2 text-sm text-gray-400">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                  <span>Calculating expected yields...</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Example Prompts */}
+        <div className="mt-6">
+          <h4 className="text-sm font-semibold text-gray-400 mb-3">
+            Try these examples:
+          </h4>
+          <div className="flex flex-wrap gap-2">
+            {[
+              "High yield farming with ETH on Layer 2s",
+              "Safe stablecoin strategy across multiple chains",
+              "Cross-chain arbitrage opportunity finder",
+              "Low risk lending with USDC on Ethereum",
+            ].map((example, index) => (
+              <button
+                key={index}
+                onClick={() => setCustomPrompt(example)}
+                className="text-xs bg-white/5 hover:bg-white/10 px-3 py-1 rounded-lg transition-colors"
+              >
+                {example}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Generated Strategy Preview */}
+        <div className="mt-6">
+          {generatedStrategy && (
+            <div
+              key={generatedStrategy.id}
+              className={`bg-white/5 rounded-xl p-4 border transition-all hover:border-white/30 cursor-pointer ${
+                selectedStrategy === generatedStrategy.id
+                  ? "border-blue-500 bg-blue-500/10"
+                  : "border-white/10"
+              }`}
+              onClick={() => setSelectedStrategy(generatedStrategy.id)}
+            >
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex items-center space-x-3">
+                  <h4 className="text-lg font-semibold">
+                    {generatedStrategy.name}
+                  </h4>
+                  {generatedStrategy.recommended && (
+                    <span className="bg-green-500/20 text-green-400 text-xs px-2 py-1 rounded-full">
+                      Recommended
+                    </span>
+                  )}
+                  <span className="bg-blue-500/20 text-blue-400 text-xs px-2 py-1 rounded-full">
+                    {generatedStrategy.type.toUpperCase()}
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-lg font-bold text-green-400">
+                    {generatedStrategy.apy}% APY
+                  </span>
+                  <span
+                    className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                      riskColors[generatedStrategy.risk]
+                    }`}
+                  >
+                    {generatedStrategy.risk.toUpperCase()}
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-gray-300 mb-4">
+                {generatedStrategy.description}
+              </p>
+
+              <div className="flex flex-wrap gap-2 mb-4">
+                {generatedStrategy.chains.map((chain) => (
+                  <span
+                    key={chain}
+                    className="bg-white/10 px-2 py-1 rounded text-sm"
+                  >
+                    {chain}
+                  </span>
+                ))}
+                {generatedStrategy.protocols.map((protocol) => (
+                  <span
+                    key={protocol}
+                    className="bg-green-500/20 text-green-400 px-2 py-1 rounded text-sm"
+                  >
+                    {protocol}
+                  </span>
+                ))}
+              </div>
+
+              <div className="flex justify-between items-center">
+                <div className="text-sm text-gray-400">
+                  TVL: ${(generatedStrategy.tvl / 1000000).toFixed(1)}M
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    simulateBridgeStrategy(generatedStrategy);
+                    // executeStrategy(strategy.id);
+                  }}
+                  disabled={!isInitialized || isExecuting}
+                  className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 px-4 py-2 rounded-lg font-semibold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isExecuting ? "Executing..." : "Execute via Avail"}
+                </button>
               </div>
             </div>
           )}
@@ -621,7 +823,8 @@ const StrategyBuilder: React.FC = () => {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    executeStrategy(strategy.id);
+                    simulateBridgeStrategy(strategy);
+                    // executeStrategy(strategy.id);
                   }}
                   disabled={!isInitialized || isExecuting}
                   className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 px-4 py-2 rounded-lg font-semibold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
